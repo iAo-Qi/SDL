@@ -1,0 +1,48 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: 下载 git ..
+      run: |
+        apt install git cmake make clang wget unzip ninja
+    - name: 下载Android ndk git sdl
+      run: |
+        git clone https://github.com/libsdl-org/SDL.git
+        wget https://googledownloads.cn/android/repository/android-ndk-r28c-linux.zip
+        unzip -p ./android-ndk-r28c-linux.zip
+        mv android-ndk-r28c ndk
+    - name: 编译
+      run: |
+        cd SDL
+        mkdir b
+        cd b
+        cmake .. \
+          -G Ninja \
+          -DCMAKE_TOOLCHAIN_FILE=../../ndk/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-21 \
+          -DSDL_STATIC=ON \
+          -DSDL_SHARED=ON
+        ninja 
+    - name: zip
+      run: |
+        ls
+        mkdir -p artifacts
+        cp SDL/build/*.so artifacts/ || true
+        cp SDL/build/*.a artifacts/ || true
+        ls -lh artifacts
+    - uses: actions/upload-artifact@v4
+      with:
+        name: sdl3-build
+        path: artifacts/
