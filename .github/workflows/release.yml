@@ -1,221 +1,41 @@
-name: 'release'
-run-name: 'Create SDL release artifacts for ${{ inputs.commit }}'
+name: Android SDL Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      commit:
-        description: 'Commit of SDL'
-        required: true
+  push:
+    branches: [ main ]
+  workflow_dispatch:   # 允许手动触发
 
 jobs:
-
-  src:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      project: ${{ steps.releaser.outputs.project }}
-      version: ${{ steps.releaser.outputs.version }}
-      src-tar-gz: ${{ steps.releaser.outputs.src-tar-gz }}
-      src-tar-xz: ${{ steps.releaser.outputs.src-tar-xz }}
-      src-zip: ${{ steps.releaser.outputs.src-zip }}
-    steps:
-      - name: 'Set up Python'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: 'Fetch build-release.py'
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: 'build-scripts/build-release.py'
-      - name: 'Set up SDL sources'
-        uses: actions/checkout@v4
-        with:
-          path: 'SDL'
-          fetch-depth: 0
-      - name: 'Build Source archive'
-        id: releaser
-        shell: bash
-        run: |
-          python build-scripts/build-release.py \
-            --actions source \
-            --commit ${{ inputs.commit }} \
-            --root "${{ github.workspace }}/SDL" \
-            --github \
-            --debug
-      - name: 'Store source archives'
-        uses: actions/upload-artifact@v4
-        with:
-          name: sources
-          path: '${{ github.workspace}}/dist'
-      - name: 'Generate summary'
-        run: |
-          echo "Run the following commands to download all artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "mkdir -p /tmp/${{ steps.releaser.outputs.project }}-${{ steps.releaser.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "cd /tmp/${{ steps.releaser.outputs.project }}-${{ steps.releaser.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "gh run -R ${{ github.repository }} download ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
 
-  linux-verify:
-    needs: [src]
-    runs-on: ubuntu-latest
     steps:
-      - name: 'Download source archives'
-        uses: actions/download-artifact@v4
-        with:
-          name: sources
-          path: '${{ github.workspace }}'
-      - name: 'Unzip ${{ needs.src.outputs.src-zip }}'
-        id: zip
-        run: |
-          mkdir /tmp/zipdir
-          cd /tmp/zipdir
-          unzip "${{ github.workspace }}/${{ needs.src.outputs.src-zip }}"
-          echo "path=/tmp/zipdir/${{ needs.src.outputs.project }}-${{ needs.src.outputs.version }}" >>$GITHUB_OUTPUT
-      - name: 'Untar ${{ needs.src.outputs.src-tar-gz }}'
-        id: tar
-        run: |
-          mkdir -p /tmp/tardir
-          tar -C /tmp/tardir -v -x -f "${{ github.workspace }}/${{ needs.src.outputs.src-tar-gz }}"
-          echo "path=/tmp/tardir/${{ needs.src.outputs.project }}-${{ needs.src.outputs.version }}" >>$GITHUB_OUTPUT
-      - name: 'Compare contents of ${{ needs.src.outputs.src-zip }} and  ${{ needs.src.outputs.src-tar-gz }}'
-        run: |
-          diff /tmp/zipdir /tmp/tardir
-      - name: 'Test versioning'
-        shell: bash
-        run: |
-          ${{ steps.tar.outputs.path }}/build-scripts/test-versioning.sh
-      - name: 'Install Linux dependencies'
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            gnome-desktop-testing libasound2-dev libpulse-dev libaudio-dev libjack-dev libsndio-dev \
-            libusb-1.0-0-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
-            libxss-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
-            libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev libudev-dev fcitx-libs-dev
-      - name: 'CMake (configure + build + tests + examples)'
-        run: |
-          cmake -S ${{ steps.tar.outputs.path }} -B /tmp/build -DSDL_TEST_LIBRARY=TRUE -DSDL_TESTS=TRUE -DSDL_EXAMPLES=TRUE
-          cmake --build /tmp/build --verbose
-          ctest --test-dir /tmp/build --no-tests=error --output-on-failure
+      # 拉取代码
+      - uses: actions/checkout@v3
 
-  dmg:
-    needs: [src]
-    runs-on: macos-latest
-    outputs:
-      dmg: ${{ steps.releaser.outputs.dmg }}
-    steps:
-      - name: 'Set up Python'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: 'Fetch build-release.py'
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: 'build-scripts/build-release.py'
-      - name: 'Download source archives'
-        uses: actions/download-artifact@v4
-        with:
-          name: sources
-          path: '${{ github.workspace }}'
-      - name: 'Untar ${{ needs.src.outputs.src-tar-gz }}'
-        id: tar
+      # 下载并解压 Android NDK（Google 官方镜像）
+      - name: Install Android NDK
         run: |
-          mkdir -p "${{ github.workspace }}/tardir"
-          tar -C "${{ github.workspace }}/tardir" -v -x -f "${{ github.workspace }}/${{ needs.src.outputs.src-tar-gz }}"
-          echo "path=${{ github.workspace }}/tardir/${{ needs.src.outputs.project }}-${{ needs.src.outputs.version }}" >>$GITHUB_OUTPUT
-      - name: 'Build SDL3.dmg'
-        id: releaser
-        shell: bash
-        run: |
-          python build-scripts/build-release.py \
-            --actions dmg \
-            --commit ${{ inputs.commit }} \
-            --root "${{ steps.tar.outputs.path }}" \
-            --github \
-            --debug
-      - name: 'Store DMG image file'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dmg
-          path: '${{ github.workspace }}/dist'
+          wget https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          unzip -q android-ndk-r25c-linux.zip -d $HOME
+          echo "ANDROID_NDK_HOME=$HOME/android-ndk-r25c" >> $GITHUB_ENV
 
-  dmg-verify:
-    needs: [dmg, src]
-    runs-on: macos-latest
-    steps:
-      - name: 'Download source archives'
-        uses: actions/download-artifact@v4
-        with:
-          name: sources
-          path: '${{ github.workspace }}'
-      - name: 'Download ${{ needs.dmg.outputs.dmg }}'
-        uses: actions/download-artifact@v4
-        with:
-          name: dmg
-          path: '${{ github.workspace }}'
-      - name: 'Untar ${{ needs.src.outputs.src-tar-gz }}'
-        id: src
+      # 配置 CMake 并编译 SDL
+      - name: Configure & Build SDL
         run: |
-          mkdir -p /tmp/tardir
-          tar -C /tmp/tardir -v -x -f "${{ github.workspace }}/${{ needs.src.outputs.src-tar-gz }}"
-          echo "path=/tmp/tardir/${{ needs.src.outputs.project }}-${{ needs.src.outputs.version }}" >>$GITHUB_OUTPUT
-      - name: 'Mount ${{ needs.dmg.outputs.dmg }}'
-        id: mount
-        run: |
-          hdiutil attach '${{ github.workspace }}/${{ needs.dmg.outputs.dmg }}'
-          mount_point="/Volumes/${{ needs.src.outputs.project }}"
-          if [ ! -d "$mount_point/${{ needs.src.outputs.project }}.xcframework" ]; then
-            echo "Cannot find ${{ needs.src.outputs.project }}.xcframework!"
-            exit 1
-          fi
-          echo "mount_point=$mount_point">>$GITHUB_OUTPUT
-      - name: 'CMake (configure + build) Darwin'
-        run: |
-          cmake -S "${{ steps.src.outputs.path }}/cmake/test"               \
-              -DTEST_FULL=FALSE                                             \
-              -DTEST_STATIC=FALSE                                           \
-              -DTEST_TEST=FALSE                                             \
-              -DCMAKE_PREFIX_PATH="${{ steps.mount.outputs.mount_point }}"  \
-              -DCMAKE_SYSTEM_NAME=Darwin                                    \
-              -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"                      \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13                           \
-              -Werror=dev                                                   \
-              -B build_darwin
-          cmake --build build_darwin --config Release --verbose
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21
+          cmake --build build --parallel
 
-          cmake -S "${{ steps.src.outputs.path }}/cmake/test"                                                   \
-              -DTEST_FULL=FALSE                                                                                 \
-              -DTEST_STATIC=FALSE                                                                               \
-              -DTEST_TEST=FALSE                                                                                 \
-              -DCMAKE_PREFIX_PATH="${{ steps.mount.outputs.mount_point }}/SDL3.xcframework/macos-arm64_x86_64"  \
-              -DCMAKE_SYSTEM_NAME=Darwin                                                                        \
-              -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"                                                          \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13                                                               \
-              -Werror=dev                                                                                       \
-              -B build_darwin_2
-          cmake --build build_darwin --config Release --verbose
-      - name: 'CMake (configure + build) iOS'
-        run: |
-          cmake -S "${{ steps.src.outputs.path }}/cmake/test"               \
-              -DTEST_FULL=FALSE                                             \
-              -DTEST_STATIC=FALSE                                           \
-              -DTEST_TEST=FALSE                                             \
-              -DCMAKE_PREFIX_PATH="${{ steps.mount.outputs.mount_point }}"  \
-              -DCMAKE_SYSTEM_NAME=iOS                                       \
-              -DCMAKE_OSX_ARCHITECTURES="arm64"                             \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0                             \
-              -Werror=dev                                                   \
-              -B build_ios
-          cmake --build build_ios --config Release --verbose
-      - name: 'CMake (configure + build) tvOS'
-        run: |
-          cmake -S "${{ steps.src.outputs.path }}/cmake/test"               \
-              -DTEST_FULL=FALSE                                             \
-              -DTEST_STATIC=FALSE                                           \
-              -DTEST_TEST=FALSE                                             \
-              -DCMAKE_PREFIX_PATH="${{ steps.mount.outputs.mount_point }}"  \
-              -DCMAKE_SYSTEM_NAME=tvOS                                      \
+      # 打包编译产物（比如 .so/.apk）
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: SDL-build
+          path: build/
+    -DCMAKE_SYSTEM_NAME=tvOS                                      \
               -DCMAKE_OSX_ARCHITECTURES="arm64"                             \
               -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0                             \
               -Werror=dev                                                   \
