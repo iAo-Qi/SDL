@@ -22,10 +22,9 @@ jobs:
         git clone https://github.com/libsdl-org/SDL.git
         wget https://googledownloads.cn/android/repository/android-ndk-r28c-linux.zip
         unzip ./android-ndk-r28c-linux.zip
-        mv android-ndk-r28c-linux ndk
-        clear
-        ls ndk
-  
+    - name: debug
+      run: |
+        ls
     - name: 编译
       run: |
         cd SDL
