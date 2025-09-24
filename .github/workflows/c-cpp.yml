@@ -25,6 +25,7 @@ jobs:
     - name: debug
       run: |
         ls
+        sudo mv android-ndk-r28c ndk
     - name: 编译
       run: |
         cd SDL
